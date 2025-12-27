@@ -4,6 +4,8 @@ const $ = id => document.getElementById(id);
 const els = {
   upload: $('btnUpload'),
   clear: $('btnClear'),
+  file: $('file'),
+
   makeFilter: $('makeFilter'),
   modelFilter: $('modelFilter'),
   lowOnly: $('btnLowOnly'),
@@ -12,7 +14,6 @@ const els = {
   totalMakes: $('totalMakes'),
   totalModels: $('totalModels'),
 
-  search: $('search'),
   breakdown: $('breakdown')
 };
 
@@ -25,10 +26,13 @@ const normalise = v =>
   String(v ?? '')
     .replace(/"/g, '')
     .replace(/\u00A0/g, ' ')
+    .replace(/\s+/g, ' ')
     .trim();
 
-const isNew = r =>
-  String(r.Condition || '').toLowerCase().includes('new');
+const isNew = r => {
+  const c = normalise(r.Condition).toLowerCase();
+  return c.includes('new') || c === '';
+};
 
 /* ---------- CSV PARSE (GUNTRADER SAFE) ---------- */
 function parseCSV(text){
@@ -55,6 +59,7 @@ function parseCSV(text){
 /* ---------- BUILD FILTERS ---------- */
 function buildFilters(){
   const makes = [...new Set(rows.map(r => r.Make))].sort();
+
   els.makeFilter.innerHTML =
     `<option value="">All Makes</option>` +
     makes.map(m => `<option value="${m}">${m}</option>`).join('');
@@ -78,21 +83,16 @@ function updateModelFilter(){
 function filtered(){
   const mk = els.makeFilter.value;
   const md = els.modelFilter.value;
-  const q  = els.search.value.toLowerCase().replace(/\s+/g, '');
 
   return rows.filter(r => {
     if (!isNew(r)) return false;
     if (mk && r.Make !== mk) return false;
     if (md && r.Model !== md) return false;
-
-    const text = `${r.Make}${r.Model}${r.Calibre}`.toLowerCase().replace(/\s+/g,'');
-    if (q && !text.includes(q)) return false;
-
     return true;
   });
 }
 
-/* ---------- RENDER DASHBOARD ---------- */
+/* ---------- RENDER ---------- */
 function render(){
   const data = filtered();
 
@@ -104,51 +104,67 @@ function render(){
 
   data.forEach(r => {
     grouped[r.Model] ??= {};
-    grouped[r.Model][r.Calibre] = (grouped[r.Model][r.Calibre] || 0) + 1;
+    grouped[r.Model][r.Calibre || '—'] =
+      (grouped[r.Model][r.Calibre || '—'] || 0) + 1;
   });
 
   let html = '';
+
   Object.keys(grouped).sort().forEach(model => {
-    html += `<div class="model-block"><div class="model-name">${model}</div>`;
+    html += `<div class="model-block">
+      <div class="model-name">${model}</div>`;
+
     Object.entries(grouped[model]).forEach(([cal, count]) => {
-      let cls = count === 1 ? 'last' : count === 2 ? 'low' : 'ok';
       if (showLowOnly && count > 2) return;
+
+      let cls = 'ok';
+      if (count === 2) cls = 'low';
+      if (count === 1) cls = 'last';
+
       html += `
         <div class="cal-line ${cls}">
           <span>${cal}</span>
           <span>${count} in stock</span>
         </div>`;
     });
+
     html += `</div>`;
   });
 
-  els.breakdown.innerHTML = html || `<div class="empty">No results</div>`;
+  els.breakdown.innerHTML = html || `<div class="empty">No stock</div>`;
 }
 
-/* ---------- EVENTS ---------- */
-els.upload.onclick = () => $('file').click();
+/* ---------- CSV UPLOAD (iOS SAFE) ---------- */
+const fileInput = els.file;
 
-$('file').onchange = e => {
+els.upload.onclick = () => {
+  fileInput.value = '';
+  fileInput.click();
+};
+
+fileInput.addEventListener('change', e => {
   const f = e.target.files[0];
   if (!f) return;
 
   const reader = new FileReader();
   reader.onload = () => {
     rows = parseCSV(reader.result);
+    localStorage.setItem('gt_rows', JSON.stringify(rows));
+
     buildFilters();
     updateModelFilter();
     render();
   };
   reader.readAsText(f);
-};
+});
 
+/* ---------- EVENTS ---------- */
 els.makeFilter.onchange = () => {
   updateModelFilter();
   render();
 };
 
 els.modelFilter.onchange = render;
-els.search.oninput = render;
 
 els.lowOnly.onclick = () => {
   showLowOnly = !showLowOnly;
@@ -157,9 +173,16 @@ els.lowOnly.onclick = () => {
 };
 
 els.clear.onclick = () => {
+  localStorage.clear();
   rows = [];
-  els.breakdown.innerHTML = '';
-  els.totalItems.textContent = 0;
-  els.totalMakes.textContent = 0;
-  els.totalModels.textContent = 0;
+  render();
 };
+
+/* ---------- INIT ---------- */
+const saved = localStorage.getItem('gt_rows');
+if (saved) {
+  rows = JSON.parse(saved);
+  buildFilters();
+  updateModelFilter();
+  render();
+}
