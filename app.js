@@ -6,14 +6,11 @@ const els = {
   clear: $('btnClear'),
   lowOnly: $('btnLowOnly'),
   file: $('file'),
-
   makeFilter: $('makeFilter'),
   modelFilter: $('modelFilter'),
-
   totalItems: $('totalItems'),
   totalMakes: $('totalMakes'),
   totalModels: $('totalModels'),
-
   breakdown: $('breakdown')
 };
 
@@ -29,20 +26,29 @@ const norm = v =>
     .replace(/\s+/g, ' ')
     .trim();
 
-const isNew = r => {
-  const c = norm(r.Condition).toLowerCase();
-  return c.includes('new') || c === '';
-};
+const isNew = r =>
+  norm(r.Condition).toLowerCase().includes('new') || !r.Condition;
 
-/* ---------- CSV PARSER (BULLETPROOF) ---------- */
+/* ---------- CSV PARSER (GUNTRADER SAFE) ---------- */
 function parseCSV(text) {
   const lines = text.split(/\r?\n/).filter(l => l.trim());
   if (!lines.length) return [];
 
-  const headers = lines[0].split(',').map(h => h.toLowerCase());
+  // detect delimiter
+  const delim = lines[0].includes(';') ? ';' : ',';
 
-  return lines.slice(1).map(line => {
-    const v = line.split(',');
+  // find header row
+  const headerIndex = lines.findIndex(l =>
+    /make/i.test(l) && /model/i.test(l)
+  );
+  if (headerIndex < 0) return [];
+
+  const headers = lines[headerIndex]
+    .split(delim)
+    .map(h => h.toLowerCase());
+
+  return lines.slice(headerIndex + 1).map(line => {
+    const v = line.split(delim);
     const o = {};
 
     headers.forEach((h, i) => {
@@ -53,17 +59,16 @@ function parseCSV(text) {
     });
 
     return o;
-  }).filter(r => r.Make && r.Model);
+  }).filter(r => r.Make && r.Model && isNew(r));
 }
 
-/* ---------- FILTERS ---------- */
+/* ---------- FILTER BUILD ---------- */
 function buildFilters() {
   const makes = [...new Set(rows.map(r => r.Make))].sort();
   els.makeFilter.innerHTML =
     '<option value="">All Makes</option>' +
     makes.map(m => `<option value="${m}">${m}</option>`).join('');
-
-  els.modelFilter.innerHTML = '<option value="">All Models</option>';
+  updateModelFilter();
 }
 
 function updateModelFilter() {
@@ -80,7 +85,6 @@ function updateModelFilter() {
 /* ---------- RENDER ---------- */
 function render() {
   const data = rows.filter(r => {
-    if (!isNew(r)) return false;
     if (els.makeFilter.value && r.Make !== els.makeFilter.value) return false;
     if (els.modelFilter.value && r.Model !== els.modelFilter.value) return false;
     return true;
@@ -99,10 +103,11 @@ function render() {
 
   let html = '';
   Object.keys(grouped).sort().forEach(model => {
-    html += `<div class="model-block"><div class="model-name">${model}</div>`;
+    html += `<div class="model-block">
+      <div class="model-name">${model}</div>`;
     Object.entries(grouped[model]).forEach(([cal, count]) => {
       if (showLowOnly && count > 2) return;
-      let cls = count === 1 ? 'last' : count === 2 ? 'low' : 'ok';
+      const cls = count === 1 ? 'last' : count === 2 ? 'low' : 'ok';
       html += `<div class="cal-line ${cls}">
         <span>${cal}</span><span>${count} in stock</span>
       </div>`;
@@ -119,7 +124,7 @@ els.upload.onclick = () => {
   els.file.click();
 };
 
-els.file.addEventListener('change', e => {
+els.file.onchange = e => {
   const f = e.target.files[0];
   if (!f) return;
 
@@ -127,11 +132,10 @@ els.file.addEventListener('change', e => {
   r.onload = () => {
     rows = parseCSV(r.result);
     buildFilters();
-    updateModelFilter();
     render();
   };
   r.readAsText(f);
-});
+};
 
 els.makeFilter.onchange = () => {
   updateModelFilter();
