@@ -4,17 +4,16 @@ const $ = id => document.getElementById(id);
 const els = {
   upload: $('btnUpload'),
   clear: $('btnClear'),
-  file: $('file'),
-
   makeFilter: $('makeFilter'),
   modelFilter: $('modelFilter'),
   lowOnly: $('btnLowOnly'),
 
-  statItems: $('statItems'),
-  statMakes: $('statMakes'),
-  statModels: $('statModels'),
+  totalItems: $('totalItems'),
+  totalMakes: $('totalMakes'),
+  totalModels: $('totalModels'),
 
-  list: $('stockList')
+  search: $('search'),
+  breakdown: $('breakdown')
 };
 
 /* ---------- STATE ---------- */
@@ -28,154 +27,128 @@ const normalise = v =>
     .replace(/\u00A0/g, ' ')
     .trim();
 
-const cleanKey = v =>
-  normalise(v).toLowerCase().replace(/\s+/g, '');
+const isNew = r =>
+  String(r.Condition || '').toLowerCase().includes('new');
 
-/* ✅ FIXED NEW CHECK (Guntrader-safe) */
-const isNew = r => {
-  const c = normalise(r.Condition).toLowerCase();
-  return c.includes('new') || c === '';
-};
-
-/* ---------- CSV PARSE ---------- */
+/* ---------- CSV PARSE (GUNTRADER SAFE) ---------- */
 function parseCSV(text){
   const lines = text.split(/\r?\n/).filter(l => l.trim());
-  const headerRow = lines.findIndex(l => /make/i.test(l) && /model/i.test(l));
-  if (headerRow < 0) return [];
+  if (!lines.length) return [];
 
-  const headers = lines[headerRow].split(',');
+  const headers = lines[0].split(',').map(h => h.toLowerCase());
 
-  return lines.slice(headerRow + 1).map(row => {
+  return lines.slice(1).map(row => {
     const v = row.split(',');
     const o = {};
-    headers.forEach((h,i) => {
-      const k = h.toLowerCase();
-      if (k.includes('make')) o.Make = normalise(v[i]);
-      if (k.includes('model')) o.Model = normalise(v[i]);
-      if (k.includes('cal')) o.Calibre = normalise(v[i]);
-      if (k.includes('condition')) o.Condition = normalise(v[i]);
+
+    headers.forEach((h, i) => {
+      if (h.includes('make')) o.Make = normalise(v[i]);
+      if (h.includes('model')) o.Model = normalise(v[i]);
+      if (h.includes('cal')) o.Calibre = normalise(v[i]);
+      if (h.includes('condition')) o.Condition = normalise(v[i]);
     });
+
     return o;
   }).filter(r => r.Make && r.Model);
 }
 
-/* ---------- GROUP STOCK ---------- */
-function buildStock(){
-  const grouped = {};
-  rows.forEach(r => {
-    if (!isNew(r)) return;
-
-    const make = r.Make;
-    const model = r.Model;
-    const cal = r.Calibre || '—';
-
-    grouped[make] ??= {};
-    grouped[make][model] ??= {};
-    grouped[make][model][cal] = (grouped[make][model][cal] || 0) + 1;
-  });
-  return grouped;
-}
-
-/* ---------- FILTERS ---------- */
-function populateFilters(grouped){
+/* ---------- BUILD FILTERS ---------- */
+function buildFilters(){
+  const makes = [...new Set(rows.map(r => r.Make))].sort();
   els.makeFilter.innerHTML =
-    '<option value="">All Makes</option>' +
-    Object.keys(grouped).sort().map(m =>
-      `<option value="${m}">${m}</option>`
-    ).join('');
+    `<option value="">All Makes</option>` +
+    makes.map(m => `<option value="${m}">${m}</option>`).join('');
 
-  els.modelFilter.innerHTML = '<option value="">All Models</option>';
+  els.modelFilter.innerHTML = `<option value="">All Models</option>`;
 }
 
-/* ---------- RENDER ---------- */
+/* ---------- UPDATE MODEL FILTER ---------- */
+function updateModelFilter(){
+  const make = els.makeFilter.value;
+  const models = [...new Set(
+    rows.filter(r => !make || r.Make === make).map(r => r.Model)
+  )].sort();
+
+  els.modelFilter.innerHTML =
+    `<option value="">All Models</option>` +
+    models.map(m => `<option value="${m}">${m}</option>`).join('');
+}
+
+/* ---------- FILTERED DATA ---------- */
+function filtered(){
+  const mk = els.makeFilter.value;
+  const md = els.modelFilter.value;
+  const q  = els.search.value.toLowerCase().replace(/\s+/g, '');
+
+  return rows.filter(r => {
+    if (!isNew(r)) return false;
+    if (mk && r.Make !== mk) return false;
+    if (md && r.Model !== md) return false;
+
+    const text = `${r.Make}${r.Model}${r.Calibre}`.toLowerCase().replace(/\s+/g,'');
+    if (q && !text.includes(q)) return false;
+
+    return true;
+  });
+}
+
+/* ---------- RENDER DASHBOARD ---------- */
 function render(){
-  const grouped = buildStock();
-  const makeSel = els.makeFilter.value;
-  const modelSel = els.modelFilter.value;
+  const data = filtered();
 
-  els.list.innerHTML = '';
+  els.totalItems.textContent = data.length;
+  els.totalMakes.textContent = new Set(data.map(r => r.Make)).size;
+  els.totalModels.textContent = new Set(data.map(r => r.Model)).size;
 
-  let itemCount = 0;
-  const makeSet = new Set();
-  const modelSet = new Set();
+  const grouped = {};
 
-  Object.keys(grouped).sort().forEach(make => {
-    if (makeSel && make !== makeSel) return;
-
-    Object.keys(grouped[make]).sort().forEach(model => {
-      if (modelSel && model !== modelSel) return;
-
-      const lines = grouped[make][model];
-      const total = Object.values(lines).reduce((a,b)=>a+b,0);
-
-      Object.entries(lines).forEach(([cal,count]) => {
-        if (showLowOnly && count > 2) return;
-
-        itemCount++;
-        makeSet.add(make);
-        modelSet.add(model);
-
-        const status =
-          count === 1 ? 'last' :
-          count === 2 ? 'low' : 'ok';
-
-        els.list.insertAdjacentHTML('beforeend', `
-          <div class="stock-row ${status}">
-            <div class="title">${model}</div>
-            <div class="meta">${make} · ${cal}</div>
-            <div class="qty">${count} IN STOCK</div>
-          </div>
-        `);
-      });
-    });
+  data.forEach(r => {
+    grouped[r.Model] ??= {};
+    grouped[r.Model][r.Calibre] = (grouped[r.Model][r.Calibre] || 0) + 1;
   });
 
-  els.statItems.textContent = itemCount;
-  els.statMakes.textContent = makeSet.size;
-  els.statModels.textContent = modelSet.size;
+  let html = '';
+  Object.keys(grouped).sort().forEach(model => {
+    html += `<div class="model-block"><div class="model-name">${model}</div>`;
+    Object.entries(grouped[model]).forEach(([cal, count]) => {
+      let cls = count === 1 ? 'last' : count === 2 ? 'low' : 'ok';
+      if (showLowOnly && count > 2) return;
+      html += `
+        <div class="cal-line ${cls}">
+          <span>${cal}</span>
+          <span>${count} in stock</span>
+        </div>`;
+    });
+    html += `</div>`;
+  });
+
+  els.breakdown.innerHTML = html || `<div class="empty">No results</div>`;
 }
 
 /* ---------- EVENTS ---------- */
-els.upload.onclick = () => {
-  els.file.value = '';
-  els.file.click();
-};
+els.upload.onclick = () => $('file').click();
 
-els.file.onchange = e => {
+$('file').onchange = e => {
   const f = e.target.files[0];
   if (!f) return;
 
-  const r = new FileReader();
-  r.onload = () => {
-    rows = parseCSV(r.result);
-    localStorage.setItem('gt_rows', JSON.stringify(rows));
-    populateFilters(buildStock());
+  const reader = new FileReader();
+  reader.onload = () => {
+    rows = parseCSV(reader.result);
+    buildFilters();
+    updateModelFilter();
     render();
   };
-  r.readAsText(f);
-};
-
-els.clear.onclick = () => {
-  localStorage.clear();
-  location.reload();
+  reader.readAsText(f);
 };
 
 els.makeFilter.onchange = () => {
-  const grouped = buildStock();
-  const make = els.makeFilter.value;
-
-  els.modelFilter.innerHTML =
-    '<option value="">All Models</option>' +
-    (make && grouped[make]
-      ? Object.keys(grouped[make]).sort().map(m =>
-          `<option value="${m}">${m}</option>`
-        ).join('')
-      : '');
-
+  updateModelFilter();
   render();
 };
 
 els.modelFilter.onchange = render;
+els.search.oninput = render;
 
 els.lowOnly.onclick = () => {
   showLowOnly = !showLowOnly;
@@ -183,10 +156,10 @@ els.lowOnly.onclick = () => {
   render();
 };
 
-/* ---------- INIT ---------- */
-const saved = localStorage.getItem('gt_rows');
-if (saved) {
-  rows = JSON.parse(saved);
-  populateFilters(buildStock());
-  render();
-}
+els.clear.onclick = () => {
+  rows = [];
+  els.breakdown.innerHTML = '';
+  els.totalItems.textContent = 0;
+  els.totalMakes.textContent = 0;
+  els.totalModels.textContent = 0;
+};
