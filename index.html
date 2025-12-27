@@ -2,67 +2,39 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-  <title>GUNTRADER STOCK</title>
+  <title>Guntrader Stock</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1">
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
 
-<header class="top">
-  <div class="brand">
-    <div class="title">GUNTRADER STOCK</div>
-    <div class="sub">New stock dashboard (Guntrader CSV)</div>
-  </div>
-</header>
+<h1>Guntrader Stock</h1>
 
-<main class="wrap">
+<div class="controls">
+  <button id="btnUpload">Upload CSV</button>
+  <button id="btnLowOnly">Low Stock Only</button>
+  <button id="btnClear">Clear</button>
+</div>
 
-  <section class="card controls">
+<input id="file" type="file" accept=".csv" hidden>
 
-    <div class="btnrow">
-      <button id="btnUpload" class="btn primary">Upload CSV</button>
-      <button id="btnClear" class="btn">Clear CSV</button>
-    </div>
+<div class="filters">
+  <select id="makeFilter">
+    <option value="">All Makes</option>
+  </select>
 
-    <input id="file" type="file" accept=".csv" hidden>
+  <select id="modelFilter">
+    <option value="">All Models</option>
+  </select>
+</div>
 
-    <div class="filters">
-      <select id="makeFilter">
-        <option value="">All Makes</option>
-      </select>
+<div class="stats">
+  <div>Items: <span id="totalItems">0</span></div>
+  <div>Makes: <span id="totalMakes">0</span></div>
+  <div>Models: <span id="totalModels">0</span></div>
+</div>
 
-      <select id="modelFilter">
-        <option value="">All Models</option>
-      </select>
-    </div>
-
-    <button id="btnLowOnly" class="btn warn">Show Low Stock Only</button>
-
-    <div class="stats">
-      <div class="stat"><div class="k">New items</div><div class="v" id="statItems">0</div></div>
-      <div class="stat"><div class="k">Makes</div><div class="v" id="statMakes">0</div></div>
-      <div class="stat"><div class="k">Models</div><div class="v" id="statModels">0</div></div>
-    </div>
-
-    <div id="banner" class="banner hidden"></div>
-
-    <input id="q" class="search" placeholder="Search make / model / calibre">
-
-    <div class="legend">
-      <span class="pill ok">3+ OK</span>
-      <span class="pill warn">2 LOW</span>
-      <span class="pill bad">1 LAST</span>
-    </div>
-
-  </section>
-
-  <section class="card">
-    <div class="section-title">Stock Breakdown — NEW only</div>
-    <div id="list"></div>
-    <div id="empty" class="empty hidden">Upload a Guntrader CSV to see stock levels.</div>
-  </section>
-
-</main>
+<div id="breakdown" class="breakdown"></div>
 
 <script src="app.js"></script>
 </body>
