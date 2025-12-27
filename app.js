@@ -6,11 +6,14 @@ const els = {
   clear: $('btnClear'),
   lowOnly: $('btnLowOnly'),
   file: $('file'),
+
   makeFilter: $('makeFilter'),
   modelFilter: $('modelFilter'),
+
   totalItems: $('totalItems'),
   totalMakes: $('totalMakes'),
   totalModels: $('totalModels'),
+
   breakdown: $('breakdown')
 };
 
@@ -26,29 +29,29 @@ const norm = v =>
     .replace(/\s+/g, ' ')
     .trim();
 
-const isNew = r =>
-  norm(r.Condition).toLowerCase().includes('new') || !r.Condition;
+/* ✅ STRICT NEW ONLY (EXACT WORD MATCH) */
+const isNew = r => {
+  return /\bnew\b/i.test(norm(r.Condition));
+};
 
 /* ---------- CSV PARSER (GUNTRADER SAFE) ---------- */
 function parseCSV(text) {
   const lines = text.split(/\r?\n/).filter(l => l.trim());
   if (!lines.length) return [];
 
-  // detect delimiter
-  const delim = lines[0].includes(';') ? ';' : ',';
+  const delimiter = lines[0].includes(';') ? ';' : ',';
 
-  // find header row
   const headerIndex = lines.findIndex(l =>
     /make/i.test(l) && /model/i.test(l)
   );
   if (headerIndex < 0) return [];
 
   const headers = lines[headerIndex]
-    .split(delim)
+    .split(delimiter)
     .map(h => h.toLowerCase());
 
   return lines.slice(headerIndex + 1).map(line => {
-    const v = line.split(delim);
+    const v = line.split(delimiter);
     const o = {};
 
     headers.forEach((h, i) => {
@@ -115,7 +118,7 @@ function render() {
     html += '</div>';
   });
 
-  els.breakdown.innerHTML = html || '<p>No stock</p>';
+  els.breakdown.innerHTML = html || '<p class="empty">No NEW stock</p>';
 }
 
 /* ---------- EVENTS ---------- */
@@ -128,13 +131,13 @@ els.file.onchange = e => {
   const f = e.target.files[0];
   if (!f) return;
 
-  const r = new FileReader();
-  r.onload = () => {
-    rows = parseCSV(r.result);
+  const reader = new FileReader();
+  reader.onload = () => {
+    rows = parseCSV(reader.result);
     buildFilters();
     render();
   };
-  r.readAsText(f);
+  reader.readAsText(f);
 };
 
 els.makeFilter.onchange = () => {
