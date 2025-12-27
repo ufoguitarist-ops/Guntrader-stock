@@ -3,97 +3,136 @@ const $ = id => document.getElementById(id);
 /* ---------- DOM ---------- */
 const els = {
   upload: $('btnUpload'),
+  clear: $('btnClear'),
   file: $('file'),
+
   makeFilter: $('makeFilter'),
   modelFilter: $('modelFilter'),
+  lowOnly: $('btnLowOnly'),
 
-  list: $('stockList'),
-  banner: $('banner')
+  statItems: $('statItems'),
+  statMakes: $('statMakes'),
+  statModels: $('statModels'),
+
+  list: $('stockList')
 };
 
 /* ---------- STATE ---------- */
 let rows = [];
+let showLowOnly = false;
 
 /* ---------- HELPERS ---------- */
 const normalise = v =>
-  String(v || '')
+  String(v ?? '')
     .replace(/"/g, '')
     .replace(/\u00A0/g, ' ')
-    .replace(/\s+/g, ' ')
     .trim();
 
-const isNew = r =>
-  normalise(r.Condition).toLowerCase() === 'new';
+const cleanKey = v =>
+  normalise(v).toLowerCase().replace(/\s+/g, '');
+
+/* ✅ FIXED NEW CHECK (Guntrader-safe) */
+const isNew = r => {
+  const c = normalise(r.Condition).toLowerCase();
+  return c.includes('new') || c === '';
+};
 
 /* ---------- CSV PARSE ---------- */
-function parseCSV(text) {
+function parseCSV(text){
   const lines = text.split(/\r?\n/).filter(l => l.trim());
-  const headerIndex = lines.findIndex(l =>
-    /stock/i.test(l) && /make/i.test(l) && /condition/i.test(l)
-  );
-  if (headerIndex < 0) return [];
+  const headerRow = lines.findIndex(l => /make/i.test(l) && /model/i.test(l));
+  if (headerRow < 0) return [];
 
-  const headers = lines[headerIndex].split(',').map(h => h.toLowerCase());
+  const headers = lines[headerRow].split(',');
 
-  return lines.slice(headerIndex + 1).map(line => {
-    const values = line.split(',');
-    const row = {};
-    headers.forEach((h, i) => {
-      const v = values[i]?.trim();
-      if (h.includes('make')) row.Make = normalise(v);
-      if (h.includes('model')) row.Model = normalise(v);
-      if (h.includes('cal')) row.Calibre = normalise(v);
-      if (h.includes('condition')) row.Condition = normalise(v);
+  return lines.slice(headerRow + 1).map(row => {
+    const v = row.split(',');
+    const o = {};
+    headers.forEach((h,i) => {
+      const k = h.toLowerCase();
+      if (k.includes('make')) o.Make = normalise(v[i]);
+      if (k.includes('model')) o.Model = normalise(v[i]);
+      if (k.includes('cal')) o.Calibre = normalise(v[i]);
+      if (k.includes('condition')) o.Condition = normalise(v[i]);
     });
-    return row;
-  }).filter(r => r.Make && r.Model && isNew(r));
+    return o;
+  }).filter(r => r.Make && r.Model);
 }
 
-/* ---------- BUILD FILTERS ---------- */
-function buildFilters() {
-  const makes = [...new Set(rows.map(r => r.Make))].sort();
+/* ---------- GROUP STOCK ---------- */
+function buildStock(){
+  const grouped = {};
+  rows.forEach(r => {
+    if (!isNew(r)) return;
+
+    const make = r.Make;
+    const model = r.Model;
+    const cal = r.Calibre || '—';
+
+    grouped[make] ??= {};
+    grouped[make][model] ??= {};
+    grouped[make][model][cal] = (grouped[make][model][cal] || 0) + 1;
+  });
+  return grouped;
+}
+
+/* ---------- FILTERS ---------- */
+function populateFilters(grouped){
   els.makeFilter.innerHTML =
     '<option value="">All Makes</option>' +
-    makes.map(m => `<option value="${m}">${m}</option>`).join('');
+    Object.keys(grouped).sort().map(m =>
+      `<option value="${m}">${m}</option>`
+    ).join('');
 
   els.modelFilter.innerHTML = '<option value="">All Models</option>';
 }
 
 /* ---------- RENDER ---------- */
-function render() {
-  const make = normalise(els.makeFilter.value);
-  const model = normalise(els.modelFilter.value);
+function render(){
+  const grouped = buildStock();
+  const makeSel = els.makeFilter.value;
+  const modelSel = els.modelFilter.value;
 
-  const filtered = rows.filter(r =>
-    (!make || r.Make === make) &&
-    (!model || r.Model === model)
-  );
+  els.list.innerHTML = '';
 
-  const grouped = {};
-  filtered.forEach(r => {
-    grouped[r.Model] ??= {};
-    grouped[r.Model][r.Calibre] = (grouped[r.Model][r.Calibre] || 0) + 1;
-  });
+  let itemCount = 0;
+  const makeSet = new Set();
+  const modelSet = new Set();
 
-  let html = '';
-  Object.keys(grouped).sort().forEach(modelName => {
-    html += `<div class="model-block">
-      <div class="model-name">${modelName}</div>`;
-    Object.keys(grouped[modelName]).sort().forEach(cal => {
-      const qty = grouped[modelName][cal];
-      let cls = 'ok';
-      if (qty === 2) cls = 'low';
-      if (qty === 1) cls = 'critical';
+  Object.keys(grouped).sort().forEach(make => {
+    if (makeSel && make !== makeSel) return;
 
-      html += `<div class="cal-line ${cls}">
-        <span>${cal}</span>
-        <span>${qty} in stock</span>
-      </div>`;
+    Object.keys(grouped[make]).sort().forEach(model => {
+      if (modelSel && model !== modelSel) return;
+
+      const lines = grouped[make][model];
+      const total = Object.values(lines).reduce((a,b)=>a+b,0);
+
+      Object.entries(lines).forEach(([cal,count]) => {
+        if (showLowOnly && count > 2) return;
+
+        itemCount++;
+        makeSet.add(make);
+        modelSet.add(model);
+
+        const status =
+          count === 1 ? 'last' :
+          count === 2 ? 'low' : 'ok';
+
+        els.list.insertAdjacentHTML('beforeend', `
+          <div class="stock-row ${status}">
+            <div class="title">${model}</div>
+            <div class="meta">${make} · ${cal}</div>
+            <div class="qty">${count} IN STOCK</div>
+          </div>
+        `);
+      });
     });
-    html += '</div>';
   });
 
-  els.list.innerHTML = html || '<p style="opacity:.6">No stock found</p>';
+  els.statItems.textContent = itemCount;
+  els.statMakes.textContent = makeSet.size;
+  els.statModels.textContent = modelSet.size;
 }
 
 /* ---------- EVENTS ---------- */
@@ -103,42 +142,51 @@ els.upload.onclick = () => {
 };
 
 els.file.onchange = e => {
-  const file = e.target.files[0];
-  if (!file) return;
+  const f = e.target.files[0];
+  if (!f) return;
 
-  const reader = new FileReader();
-  reader.onload = () => {
-    rows = parseCSV(reader.result);
-    localStorage.setItem('guntrader_rows', JSON.stringify(rows));
-    buildFilters();
+  const r = new FileReader();
+  r.onload = () => {
+    rows = parseCSV(r.result);
+    localStorage.setItem('gt_rows', JSON.stringify(rows));
+    populateFilters(buildStock());
     render();
-    els.banner.textContent = 'CSV loaded successfully';
-    els.banner.classList.remove('hidden');
   };
-  reader.readAsText(file);
+  r.readAsText(f);
+};
+
+els.clear.onclick = () => {
+  localStorage.clear();
+  location.reload();
 };
 
 els.makeFilter.onchange = () => {
-  const make = normalise(els.makeFilter.value);
-  const models = [...new Set(
-    rows.filter(r => !make || r.Make === make).map(r => r.Model)
-  )].sort();
+  const grouped = buildStock();
+  const make = els.makeFilter.value;
 
   els.modelFilter.innerHTML =
     '<option value="">All Models</option>' +
-    models.map(m => `<option value="${m}">${m}</option>`).join('');
+    (make && grouped[make]
+      ? Object.keys(grouped[make]).sort().map(m =>
+          `<option value="${m}">${m}</option>`
+        ).join('')
+      : '');
 
   render();
 };
 
 els.modelFilter.onchange = render;
 
+els.lowOnly.onclick = () => {
+  showLowOnly = !showLowOnly;
+  els.lowOnly.classList.toggle('active', showLowOnly);
+  render();
+};
+
 /* ---------- INIT ---------- */
-(function init() {
-  const saved = localStorage.getItem('guntrader_rows');
-  if (saved) {
-    rows = JSON.parse(saved);
-    buildFilters();
-    render();
-  }
-})();
+const saved = localStorage.getItem('gt_rows');
+if (saved) {
+  rows = JSON.parse(saved);
+  populateFilters(buildStock());
+  render();
+}
